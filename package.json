@@ -11,7 +11,7 @@
   "dependencies": {
     "@codespacecz/web": "^0.0.3",
     "@prisma/client": "^6.19.0",
-    "@supabase/supabase-js": "^2.81.1",
+    "@supabase/supabase-js": "^2.84.0",
     "esbuild-wasm": "^0.27.0",
     "next": "^16.0.3",
     "react": "^19.2.0",
