@@ -1,38 +1,34 @@
-// app/login/page.tsx
 "use client";
 
-import { supabase } from "@/lib/supabaseClient";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  useEffect(() => {
-    // Check if already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.push("/dashboard");
-      }
-    });
-  }, [router]);
-
-  const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
+  async function signInWithGoogle() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-  };
+
+    if (error) {
+      console.error("Error logging in:", error);
+    }
+  }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-900">
-      <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-96">
-        <h1 className="text-2xl font-bold text-white mb-6">Login</h1>
+    <div className="flex min-h-screen items-center justify-center bg-gray-900">
+      <div className="w-full max-w-md rounded-lg bg-gray-800 p-8">
+        <h1 className="mb-6 text-2xl font-bold text-white">Login</h1>
+        
         <button
-          onClick={handleGoogleLogin}
-          className="w-full bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700"
+          onClick={signInWithGoogle}
+          className="w-full rounded bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
         >
           Sign in with Google
         </button>
