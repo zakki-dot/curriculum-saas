@@ -1,55 +1,6 @@
 "use client";
 
-import { useState } from "react";
-
-// Sample curriculum data (later this will come from Supabase)
-const sampleData = [
-  {
-    id: 1,
-    subject: "SLA",
-    grade: "5",
-    curriculum: "Benchmark-Adelante",
-    quarter: "Q1",
-    module: "Module 1",
-    arcQuestion: "¿Cómo decidimos cuáles recursos debemos desarrollar?",
-    assessments: ["End of Unit Assessment", "End of Unit Essay"],
-    weekRange: "Week: 1-3 Sep 15 - Oct 9",
-    coreTexts: "La estructura de una planta de maíz, El futuro de un cultivo, Breve historia de una planta especial, Plantas auxiliares, La cienca de cultivar maíz",
-    learningTargets: "Benchmark Standards, LT, SC",
-    standards: "RL.5.1, RL.5.2, RL.5.3, W.5.1, W.5.2",
-    successCriteria: "Students can identify main idea and supporting details. Students can write an argumentative essay.",
-  },
-  {
-    id: 2,
-    subject: "SLA",
-    grade: "4",
-    curriculum: "Benchmark-Adelante",
-    quarter: "Q1",
-    module: "Module 1",
-    arcQuestion: "¿Cómo respondemos a la naturaleza?",
-    assessments: ["End of Unit Assessment", "End of Unit Essay"],
-    weekRange: "Week: 1-3 Sept 15- Oct 9",
-    coreTexts: "El almuerzo gratis para un pájaro, El caracol rosa, Verano entre glaciares, El manantial secreto",
-    learningTargets: "Benchmark Standards, LT, SC",
-    standards: "RL.4.1, RL.4.2, RL.4.3, W.4.1",
-    successCriteria: "Students can analyze character development. Students can identify theme.",
-  },
-  {
-    id: 3,
-    subject: "SLA",
-    grade: "3",
-    curriculum: "Benchmark-Adelante",
-    quarter: "Q1",
-    module: "Module 1",
-    arcQuestion: "¿Cómo sobreviven los seres vivos en su medioambiente?",
-    assessments: ["End of Unit Assessment", "End of Unit Essay"],
-    weekRange: "Week: 1-3 Sept 15 - Oct 9",
-    coreTexts: "Los disfraces de los animales, Las herramientas de supervivencia de los animales, Pelajes, pieles, escamas o plumas, Un cuerpo, muchas adaptaciones",
-    learningTargets: "Benchmark Standards, LT, SC",
-    standards: "RL.3.1, RL.3.2, RI.3.1, W.3.2",
-    successCriteria: "Students can identify cause and effect. Students can summarize informational text.",
-  },
-];
+import { useState, useEffect } from "react";
 
 // Collapsible section component
 function CollapsibleSection({ title, content }: { title: string; content: string }) {
@@ -73,19 +24,21 @@ function CollapsibleSection({ title, content }: { title: string; content: string
   );
 }
 
-// Curriculum Card component
-function CurriculumCard({ data }: { data: typeof sampleData[0] }) {
+// Curriculum Card component - updated to work with real database fields
+function CurriculumCard({ data }: { data: any }) {
   return (
     <div className="flex bg-white rounded-lg shadow-md overflow-hidden mb-6">
       {/* Left colored sidebar */}
       <div className="w-36 bg-teal-700 text-white p-4 flex flex-col">
         <span className="text-xs uppercase tracking-wide">Subject</span>
-        <span className="text-3xl font-bold">{data.subject}</span>
-        <span className="text-5xl font-bold my-2">{data.grade}</span>
-        <span className="text-sm">{data.curriculum}</span>
-        <a href="#" className="text-cyan-300 text-xs mt-3 hover:underline">
-          View Scope & Sequence &gt;
-        </a>
+        <span className="text-3xl font-bold">{data.subject || "N/A"}</span>
+        <span className="text-5xl font-bold my-2">{data.grade || "N/A"}</span>
+        <span className="text-sm">{data.curriculum || "N/A"}</span>
+        {data.scope_link && (
+          <a href={data.scope_link} target="_blank" rel="noopener noreferrer" className="text-cyan-300 text-xs mt-3 hover:underline">
+            View Scope & Sequence &gt;
+          </a>
+        )}
       </div>
 
       {/* Middle content section */}
@@ -93,53 +46,90 @@ function CurriculumCard({ data }: { data: typeof sampleData[0] }) {
         <div className="flex gap-8 mb-4">
           {/* Module info */}
           <div>
-            <h3 className="font-bold text-gray-900">{data.module}</h3>
-            <p className="text-sm text-gray-700">
-              <span className="font-semibold">Arc Question:</span><br />
-              {data.arcQuestion}
-            </p>
-            <p className="text-sm text-gray-700 mt-2">
-              <span className="font-semibold">Assessment:</span><br />
-              {data.assessments.map((a, i) => (
-                <a key={i} href="#" className="text-blue-600 hover:underline block">{a}</a>
-              ))}
-            </p>
+            <h3 className="font-bold text-gray-900">{data.unit || data.title || "Unit"}</h3>
+            {data.fq && (
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">Arc Question:</span><br />
+                {data.fq}
+              </p>
+            )}
+            {data.assessment_name && (
+              <p className="text-sm text-gray-700 mt-2">
+                <span className="font-semibold">Assessment:</span><br />
+                {data.assessment_link ? (
+                  <a href={data.assessment_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline block">
+                    {data.assessment_name}
+                  </a>
+                ) : (
+                  <span>{data.assessment_name}</span>
+                )}
+              </p>
+            )}
+            {data.theme && (
+              <p className="text-sm text-gray-700 mt-2">
+                <span className="font-semibold">Theme:</span> {data.theme}
+              </p>
+            )}
           </div>
 
           {/* Week and Core Texts */}
           <div className="flex-1">
-            <div className="bg-cyan-500 text-white px-3 py-1 rounded text-sm inline-block mb-2">
-              {data.weekRange}
-            </div>
-            <div className="bg-gray-100 p-3 rounded">
-              <h4 className="font-semibold text-gray-800 text-sm">K5 SLA Adelante Core Text(s)</h4>
-              <p className="text-gray-700 text-sm">{data.coreTexts}</p>
-            </div>
+            {data.week && data.date && (
+              <div className="bg-cyan-500 text-white px-3 py-1 rounded text-sm inline-block mb-2">
+                Week: {data.week} - {data.date}
+              </div>
+            )}
+            
+            {(data.required_text || data.choice_text) && (
+              <div className="bg-gray-100 p-3 rounded mb-2">
+                <h4 className="font-semibold text-gray-800 text-sm">Core Text(s)</h4>
+                {data.required_text && (
+                  <p className="text-gray-700 text-sm"><strong>Required:</strong> {data.required_text}</p>
+                )}
+                {data.choice_text && (
+                  <p className="text-gray-700 text-sm mt-1"><strong>Choice:</strong> {data.choice_text}</p>
+                )}
+              </div>
+            )}
 
             {/* Learning Targets */}
-            <div className="bg-gray-100 p-3 rounded mt-2">
-              <h4 className="font-semibold text-gray-800 text-sm">SLA Adelante Learning Targets</h4>
-              <a href="#" className="text-blue-600 text-sm hover:underline">{data.learningTargets}</a>
-            </div>
+            {data.learning_targets && (
+              <div className="bg-gray-100 p-3 rounded mt-2">
+                <h4 className="font-semibold text-gray-800 text-sm">Learning Targets</h4>
+                <p className="text-gray-700 text-sm">{data.learning_targets}</p>
+              </div>
+            )}
 
             {/* Collapsible Standards */}
-            <CollapsibleSection
-              title="K5 SLA Adelante Standards"
-              content={data.standards}
-            />
+            {data.standards && (
+              <CollapsibleSection
+                title="Standards"
+                content={data.standards}
+              />
+            )}
 
             {/* Collapsible Success Criteria */}
-            <CollapsibleSection
-              title="K5 SLA Adelante Success Criteria"
-              content={data.successCriteria}
-            />
+            {data.success_criteria && (
+              <CollapsibleSection
+                title="Success Criteria"
+                content={data.success_criteria}
+              />
+            )}
+
+            {/* Task */}
+            {data.task && (
+              <div className="bg-gray-100 p-3 rounded mt-2">
+                <h4 className="font-semibold text-gray-800 text-sm">Task</h4>
+                <p className="text-gray-700 text-sm">{data.task}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Right quarter badge */}
       <div className="w-24 bg-cyan-400 flex items-center justify-center">
-        <span className="text-5xl font-light text-white">{data.quarter}</span>
+        <span className="text-5xl font-light text-white">{data.quarter || "Q?"}</span>
       </div>
     </div>
   );
@@ -152,14 +142,58 @@ export default function Home() {
   const [curriculum, setCurriculum] = useState("");
   const [week, setWeek] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // ✅ NEW: State for real data from database
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Filter the data based on selections
-  const filteredData = sampleData.filter((item) => {
-    if (quarter && item.quarter !== quarter) return false;
-    if (grade && item.grade !== grade) return false;
-    if (subject && item.subject !== subject) return false;
-    if (curriculum && item.curriculum !== curriculum) return false;
-    return true;
+  // ✅ NEW: Fetch curriculum data from API whenever filters change
+  useEffect(() => {
+    async function fetchCurriculum() {
+      setLoading(true);
+      setError("");
+      
+      try {
+        const params = new URLSearchParams();
+        if (quarter) params.append("quarter", quarter);
+        if (grade) params.append("grade", grade);
+        if (subject) params.append("subject", subject);
+        if (curriculum) params.append("curriculum", curriculum);
+
+        const response = await fetch(`/api/curriculum?${params.toString()}`);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to fetch curriculum");
+        }
+
+        if (result.success) {
+          setData(result.data || []);
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch curriculum:", err);
+        setError(err.message || "Failed to load curriculum data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchCurriculum();
+  }, [quarter, grade, subject, curriculum]); // Re-fetch when filters change
+
+  // Filter by search term (client-side filtering on loaded data)
+  const filteredData = data.filter((item) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return (
+      item.title?.toLowerCase().includes(search) ||
+      item.unit?.toLowerCase().includes(search) ||
+      item.theme?.toLowerCase().includes(search) ||
+      item.standards?.toLowerCase().includes(search) ||
+      item.learning_targets?.toLowerCase().includes(search) ||
+      item.task?.toLowerCase().includes(search)
+    );
   });
 
   return (
@@ -245,7 +279,9 @@ export default function Home() {
 
       {/* Results count */}
       <div className="px-6 py-3 text-gray-400 text-sm flex items-center justify-between">
-        <span>1 - {filteredData.length} / {sampleData.length}</span>
+        <span>
+          {loading ? "Loading..." : `1 - ${filteredData.length} / ${data.length}`}
+        </span>
         <div className="flex gap-2">
           <button className="text-gray-400 hover:text-white">&lt;</button>
           <button className="text-gray-400 hover:text-white">&gt;</button>
@@ -254,13 +290,30 @@ export default function Home() {
 
       {/* Cards Container */}
       <main className="px-6 pb-8">
-        {filteredData.length > 0 ? (
-          filteredData.map((item) => (
-            <CurriculumCard key={item.id} data={item} />
+        {error && (
+          <div className="bg-red-800 text-white p-4 rounded mb-4">
+            ❌ {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="text-center text-gray-400 py-10">
+            <div className="animate-pulse">Loading curriculum data...</div>
+          </div>
+        ) : filteredData.length > 0 ? (
+          filteredData.map((item, index) => (
+            <CurriculumCard key={item.id || index} data={item} />
           ))
         ) : (
           <div className="text-center text-gray-400 py-10">
-            No curriculum items match your filters.
+            {data.length === 0 ? (
+              <>
+                <p className="text-lg mb-2">No curriculum data yet.</p>
+                <p className="text-sm">Add some data from the Admin panel to get started!</p>
+              </>
+            ) : (
+              "No curriculum items match your filters."
+            )}
           </div>
         )}
       </main>
