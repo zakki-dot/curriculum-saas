@@ -1,122 +1,96 @@
-import { NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getUserAndRole } from "@/lib/getUserRole";
 
-// GET single entry by ID - anyone can read
-export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
+// PUT - Update curriculum item
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
+    
+    const { user, role } = await getUserAndRole();
+
+    if (!user || (role !== "admin" && role !== "administrator")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 403 }
+      );
+    }
+
+    const body = await req.json();
+
+    // ✅ Changed "curriculum" to "curriculum_entries"
     const { data, error } = await supabaseServer
-      .from("curriculum_entries")
-      .select("*")
-      .eq("id", params.id)
+      .from("curriculum_entries")  // ← CHANGED THIS
+      .update(body)
+      .eq("id", id)
+      .select()
       .single();
 
-    if (error) throw error;
-
-    return NextResponse.json({
-      success: true,
-      data: data
-    });
-
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Entry not found" },
-      { status: 404 }
-    );
-  }
-}
-
-// UPDATE entry - requires admin or owner role
-export async function PUT(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // 🔐 Authenticate user
-    const { user, role } = await getUserAndRole();
-
-    if (!user) {
+    if (error) {
+      console.error("Update error:", error);
       return NextResponse.json(
-        { error: "Not authenticated. Please log in." },
-        { status: 401 }
+        { error: error.message },
+        { status: 400 }
       );
     }
 
-    // 🔐 Allow only admin + owner
-    if (!["administrator", "owner"].includes(role)) {
-      return NextResponse.json(
-        { error: "Not authorized. Only administrators and owners can edit entries." },
-        { status: 403 }
-      );
-    }
-
-    const updates = await req.json();
-
-    const { data, error } = await supabaseServer
-      .from("curriculum_entries")
-      .update(updates)
-      .eq("id", params.id)
-      .select();
-
-    if (error) throw error;
-
     return NextResponse.json({
       success: true,
-      data: data[0]
+      data,
     });
-
-  } catch (err: any) {
+  } catch (error: any) {
+    console.error("PUT /api/curriculum/[id] error:", error);
     return NextResponse.json(
-      { error: err.message || "Failed to update entry" },
+      { error: error.message || "Failed to update curriculum" },
       { status: 500 }
     );
   }
 }
 
-// DELETE entry - requires admin or owner role
+// DELETE - Remove curriculum item
 export async function DELETE(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // 🔐 Authenticate user
+    const { id } = await params;
+    
     const { user, role } = await getUserAndRole();
 
-    if (!user) {
+    if (!user || (role !== "admin" && role !== "administrator")) {
       return NextResponse.json(
-        { error: "Not authenticated. Please log in." },
-        { status: 401 }
-      );
-    }
-
-    // 🔐 Allow only admin + owner
-    if (!["administrator", "owner"].includes(role)) {
-      return NextResponse.json(
-        { error: "Not authorized. Only administrators and owners can delete entries." },
+        { error: "Unauthorized" },
         { status: 403 }
       );
     }
 
+    // ✅ Changed "curriculum" to "curriculum_entries"
     const { error } = await supabaseServer
-      .from("curriculum_entries")
+      .from("curriculum_entries")  // ← CHANGED THIS
       .delete()
-      .eq("id", params.id);
+      .eq("id", id);
 
-    if (error) throw error;
+    if (error) {
+      console.error("Delete error:", error);
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      message: "Entry deleted successfully"
+      message: "Curriculum item deleted",
     });
-
-  } catch (err: any) {
+  } catch (error: any) {
+    console.error("DELETE /api/curriculum/[id] error:", error);
     return NextResponse.json(
-      { error: err.message || "Failed to delete entry" },
+      { error: error.message || "Failed to delete curriculum" },
       { status: 500 }
     );
   }
 }
-
