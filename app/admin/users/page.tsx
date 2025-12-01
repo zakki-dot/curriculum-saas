@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 
 type Profile = {
@@ -32,6 +32,12 @@ export default function UsersAdminPage() {
     assigned_grade: "",
   });
 
+  // Create Supabase client
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
   useEffect(() => {
     fetchCurrentUser();
   }, []);
@@ -43,57 +49,95 @@ export default function UsersAdminPage() {
   }, [currentUser]);
 
   const fetchCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .single();
+
+      if (error) {
+        console.error("Error fetching current user:", error);
+        setMessage(`❌ Error loading profile: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
       setCurrentUser(data);
       
       // Set default district for new users
       if (data?.district) {
         setNewUserData(prev => ({ ...prev, district: data.district || "" }));
       }
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      setMessage("❌ Failed to load user profile");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const fetchUsers = async () => {
     if (!currentUser) return;
 
-    let query = supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      let query = supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    // Filter by district
-    if (currentUser.district) {
-      query = query.eq("district", currentUser.district);
-    }
+      // Admins see users in their district
+      // Super admins see everyone (no filter)
+      if (currentUser.role === "administrator" || currentUser.role === "admin") {
+        if (currentUser.district) {
+          query = query.eq("district", currentUser.district);
+        }
+      } else if (currentUser.role === "owner") {
+        // Owners see only their district
+        if (currentUser.district) {
+          query = query.eq("district", currentUser.district);
+        }
+      }
 
-    const { data, error } = await query;
+      const { data, error } = await query;
 
-    if (error) {
-      setMessage(`Error: ${error.message}`);
-    } else {
-      setUsers(data || []);
+      if (error) {
+        console.error("Error fetching users:", error);
+        setMessage(`❌ Error: ${error.message}`);
+      } else {
+        setUsers(data || []);
+      }
+    } catch (err) {
+      console.error("Unexpected error fetching users:", err);
+      setMessage("❌ Failed to load users");
     }
   };
 
   const updateUser = async (userId: string, updates: Partial<Profile>) => {
-    const { error } = await supabase
-      .from("profiles")
-      .update(updates)
-      .eq("id", userId);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update(updates)
+        .eq("id", userId);
 
-    if (error) {
-      setMessage(`❌ Error: ${error.message}`);
-    } else {
-      setMessage("✅ User updated successfully!");
-      fetchUsers();
-      setTimeout(() => setMessage(""), 3000);
+      if (error) {
+        console.error("Update error:", error);
+        setMessage(`❌ Error: ${error.message}`);
+      } else {
+        setMessage("✅ User updated successfully!");
+        fetchUsers();
+        setTimeout(() => setMessage(""), 3000);
+      }
+    } catch (err) {
+      console.error("Unexpected error updating user:", err);
+      setMessage("❌ Failed to update user");
     }
   };
 
@@ -109,48 +153,60 @@ export default function UsersAdminPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("profiles")
-      .insert({
-        id: crypto.randomUUID(),
-        email: newUserData.email,
-        role: newUserData.role,
-        district: newUserData.district || currentUser?.district,
-        assigned_subject: newUserData.assigned_subject || null,
-        assigned_grade: newUserData.assigned_grade || null,
-      });
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .insert({
+          id: crypto.randomUUID(),
+          email: newUserData.email,
+          role: newUserData.role,
+          district: newUserData.district || currentUser?.district,
+          assigned_subject: newUserData.assigned_subject || null,
+          assigned_grade: newUserData.assigned_grade || null,
+        });
 
-    if (error) {
-      setMessage(`❌ Error: ${error.message}`);
-    } else {
-      setMessage("✅ User added successfully!");
-      setShowAddModal(false);
-      setNewUserData({
-        email: "",
-        role: "viewer",
-        district: currentUser?.district || "",
-        assigned_subject: "",
-        assigned_grade: "",
-      });
-      fetchUsers();
-      setTimeout(() => setMessage(""), 3000);
+      if (error) {
+        console.error("Insert error:", error);
+        setMessage(`❌ Error: ${error.message}`);
+      } else {
+        setMessage("✅ User added successfully!");
+        setShowAddModal(false);
+        setNewUserData({
+          email: "",
+          role: "viewer",
+          district: currentUser?.district || "",
+          assigned_subject: "",
+          assigned_grade: "",
+        });
+        fetchUsers();
+        setTimeout(() => setMessage(""), 3000);
+      }
+    } catch (err) {
+      console.error("Unexpected error adding user:", err);
+      setMessage("❌ Failed to add user");
     }
   };
 
   const deleteUser = async (userId: string) => {
     if (!confirm("Are you sure you want to delete this user?")) return;
 
-    const { error } = await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", userId);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .delete()
+        .eq("id", userId);
 
-    if (error) {
-      setMessage(`❌ Error: ${error.message}`);
-    } else {
-      setMessage("✅ User deleted successfully!");
-      fetchUsers();
-      setTimeout(() => setMessage(""), 3000);
+      if (error) {
+        console.error("Delete error:", error);
+        setMessage(`❌ Error: ${error.message}`);
+      } else {
+        setMessage("✅ User deleted successfully!");
+        fetchUsers();
+        setTimeout(() => setMessage(""), 3000);
+      }
+    } catch (err) {
+      console.error("Unexpected error deleting user:", err);
+      setMessage("❌ Failed to delete user");
     }
   };
 
@@ -158,10 +214,6 @@ export default function UsersAdminPage() {
   const isSuperAdmin = () => currentUser?.role === "super_administrator";
   const isAdmin = () => currentUser?.role === "administrator" || currentUser?.role === "admin";
   const isOwner = () => currentUser?.role === "owner";
-
-  const canAccessPage = () => {
-    return isSuperAdmin() || isAdmin() || isOwner();
-  };
 
   const canAssignRole = (role: string): boolean => {
     if (isSuperAdmin()) {
@@ -232,30 +284,33 @@ export default function UsersAdminPage() {
     return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
-  // Check if current user can access this page
-  if (!loading && !canAccessPage()) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-500">Access Denied</h1>
-          <p className="text-gray-400 mt-2">
-            You do not have permission to access this page.
-          </p>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="mt-4 bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
-          >
-            Go to Dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // ✅ REMOVED THE ACCESS DENIED CHECK
+  // Middleware already handles this - no need to duplicate
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // ✅ If profile failed to load but we're not loading anymore
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-500">Error Loading Profile</h1>
+          <p className="text-gray-400 mt-2">
+            Could not load your user profile. Please try logging in again.
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="mt-4 bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+          >
+            Go to Login
+          </button>
+        </div>
       </div>
     );
   }
@@ -339,97 +394,104 @@ export default function UsersAdminPage() {
 
         {/* Users Table */}
         <div className="bg-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left">Email</th>
-                <th className="px-4 py-3 text-left">Role</th>
-                <th className="px-4 py-3 text-left">District</th>
-                <th className="px-4 py-3 text-left">Subject</th>
-                <th className="px-4 py-3 text-left">Grade</th>
-                <th className="px-4 py-3 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id} className="border-t border-gray-700">
-                  <td className="px-4 py-3 text-gray-300">
-                    {user.email}
-                    {user.id === currentUser?.id && (
-                      <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">You</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {canEditUser(user) ? (
+          {users.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">
+              <p>No users found in your district.</p>
+              <p className="text-sm mt-2">Click "+ Add User" to create one.</p>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-700">
+                <tr>
+                  <th className="px-4 py-3 text-left">Email</th>
+                  <th className="px-4 py-3 text-left">Role</th>
+                  <th className="px-4 py-3 text-left">District</th>
+                  <th className="px-4 py-3 text-left">Subject</th>
+                  <th className="px-4 py-3 text-left">Grade</th>
+                  <th className="px-4 py-3 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id} className="border-t border-gray-700">
+                    <td className="px-4 py-3 text-gray-300">
+                      {user.email}
+                      {user.id === currentUser?.id && (
+                        <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">You</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {canEditUser(user) ? (
+                        <select
+                          value={user.role}
+                          onChange={(e) => updateUser(user.id, { role: e.target.value })}
+                          className={`bg-gray-700 border rounded px-2 py-1 ${getRoleColor(user.role)}`}
+                          disabled={!canEditUser(user)}
+                        >
+                          {getAvailableRoles().map((r) => (
+                            <option key={r} value={r}>{getRoleDisplayName(r)}</option>
+                          ))}
+                          {!getAvailableRoles().includes(user.role) && (
+                            <option value={user.role}>{getRoleDisplayName(user.role)}</option>
+                          )}
+                        </select>
+                      ) : (
+                        <span className={`px-2 py-1 rounded border ${getRoleColor(user.role)}`}>
+                          {getRoleDisplayName(user.role)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        value={user.district || ""}
+                        onChange={(e) => updateUser(user.id, { district: e.target.value })}
+                        placeholder="Enter district"
+                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
+                        disabled={!canEditUser(user)}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
                       <select
-                        value={user.role}
-                        onChange={(e) => updateUser(user.id, { role: e.target.value })}
-                        className={`bg-gray-700 border rounded px-2 py-1 ${getRoleColor(user.role)}`}
+                        value={user.assigned_subject || ""}
+                        onChange={(e) => updateUser(user.id, { assigned_subject: e.target.value })}
+                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
                         disabled={!canEditUser(user)}
                       >
-                        {getAvailableRoles().map((r) => (
-                          <option key={r} value={r}>{getRoleDisplayName(r)}</option>
+                        <option value="">All</option>
+                        {SUBJECTS.map((s) => (
+                          <option key={s} value={s}>{s}</option>
                         ))}
-                        {!getAvailableRoles().includes(user.role) && (
-                          <option value={user.role}>{getRoleDisplayName(user.role)}</option>
-                        )}
                       </select>
-                    ) : (
-                      <span className={`px-2 py-1 rounded border ${getRoleColor(user.role)}`}>
-                        {getRoleDisplayName(user.role)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <input
-                      type="text"
-                      value={user.district || ""}
-                      onChange={(e) => updateUser(user.id, { district: e.target.value })}
-                      placeholder="Enter district"
-                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
-                      disabled={!canEditUser(user)}
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={user.assigned_subject || ""}
-                      onChange={(e) => updateUser(user.id, { assigned_subject: e.target.value })}
-                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                      disabled={!canEditUser(user)}
-                    >
-                      <option value="">All</option>
-                      {SUBJECTS.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={user.assigned_grade || ""}
-                      onChange={(e) => updateUser(user.id, { assigned_grade: e.target.value })}
-                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                      disabled={!canEditUser(user)}
-                    >
-                      <option value="">All</option>
-                      {GRADES.map((g) => (
-                        <option key={g} value={g}>{g}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    {canDeleteUser(user) && (
-                      <button
-                        onClick={() => deleteUser(user.id)}
-                        className="text-red-500 hover:text-red-400"
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={user.assigned_grade || ""}
+                        onChange={(e) => updateUser(user.id, { assigned_grade: e.target.value })}
+                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
+                        disabled={!canEditUser(user)}
                       >
-                        Delete
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        <option value="">All</option>
+                        {GRADES.map((g) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      {canDeleteUser(user) && (
+                        <button
+                          onClick={() => deleteUser(user.id)}
+                          className="text-red-500 hover:text-red-400"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </main>
 
