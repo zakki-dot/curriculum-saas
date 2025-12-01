@@ -1,8 +1,8 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
 
 type Profile = {
   id: string;
@@ -11,22 +11,36 @@ type Profile = {
   district: string | null;
   assigned_subject: string | null;
   assigned_grade: string | null;
+  created_at: string;
 };
 
-const ROLES = ["viewer", "editor", "owner", "administrator"];
 const SUBJECTS = ["ELA", "Math", "Science", "Social Studies", "SLA"];
 const GRADES = ["K", "1", "2", "3", "4", "5", "6", "7", "8"];
 
 export default function UsersAdminPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<Profile[]>([]);
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    email: "",
+    role: "viewer",
+    district: "",
+    assigned_subject: "",
+    assigned_grade: "",
+  });
 
   useEffect(() => {
     fetchCurrentUser();
-    fetchUsers();
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchUsers();
+    }
+  }, [currentUser]);
 
   const fetchCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -37,21 +51,35 @@ export default function UsersAdminPage() {
         .eq("id", user.id)
         .single();
       setCurrentUser(data);
+      
+      // Set default district for new users
+      if (data?.district) {
+        setNewUserData(prev => ({ ...prev, district: data.district || "" }));
+      }
     }
+    setLoading(false);
   };
 
   const fetchUsers = async () => {
-    const { data, error } = await supabase
+    if (!currentUser) return;
+
+    let query = supabase
       .from("profiles")
       .select("*")
       .order("created_at", { ascending: false });
+
+    // Filter by district
+    if (currentUser.district) {
+      query = query.eq("district", currentUser.district);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Error: ${error.message}`);
     } else {
       setUsers(data || []);
     }
-    setLoading(false);
   };
 
   const updateUser = async (userId: string, updates: Partial<Profile>) => {
@@ -65,30 +93,197 @@ export default function UsersAdminPage() {
     } else {
       setMessage("✅ User updated successfully!");
       fetchUsers();
+      setTimeout(() => setMessage(""), 3000);
     }
   };
 
-  // Check if current user is admin
-  if (currentUser && currentUser.role !== "administrator") {
+  const addUser = async () => {
+    if (!newUserData.email) {
+      setMessage("❌ Email is required");
+      return;
+    }
+
+    // Check if user can assign this role
+    if (!canAssignRole(newUserData.role)) {
+      setMessage(`❌ You cannot assign the role: ${newUserData.role}`);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .insert({
+        id: crypto.randomUUID(),
+        email: newUserData.email,
+        role: newUserData.role,
+        district: newUserData.district || currentUser?.district,
+        assigned_subject: newUserData.assigned_subject || null,
+        assigned_grade: newUserData.assigned_grade || null,
+      });
+
+    if (error) {
+      setMessage(`❌ Error: ${error.message}`);
+    } else {
+      setMessage("✅ User added successfully!");
+      setShowAddModal(false);
+      setNewUserData({
+        email: "",
+        role: "viewer",
+        district: currentUser?.district || "",
+        assigned_subject: "",
+        assigned_grade: "",
+      });
+      fetchUsers();
+      setTimeout(() => setMessage(""), 3000);
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    if (!confirm("Are you sure you want to delete this user?")) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", userId);
+
+    if (error) {
+      setMessage(`❌ Error: ${error.message}`);
+    } else {
+      setMessage("✅ User deleted successfully!");
+      fetchUsers();
+      setTimeout(() => setMessage(""), 3000);
+    }
+  };
+
+  // Helper functions for role-based permissions
+  const isSuperAdmin = () => currentUser?.role === "super_administrator";
+  const isAdmin = () => currentUser?.role === "administrator" || currentUser?.role === "admin";
+  const isOwner = () => currentUser?.role === "owner";
+
+  const canAccessPage = () => {
+    return isSuperAdmin() || isAdmin() || isOwner();
+  };
+
+  const canAssignRole = (role: string): boolean => {
+    if (isSuperAdmin()) {
+      // Super Admin can assign any role except another super_administrator
+      return role !== "super_administrator";
+    }
+    if (isAdmin()) {
+      // Administrator can assign: owner, editor, viewer
+      return ["owner", "editor", "viewer"].includes(role);
+    }
+    if (isOwner()) {
+      // Owner can only assign: editor, viewer
+      return ["editor", "viewer"].includes(role);
+    }
+    return false;
+  };
+
+  const getAvailableRoles = (): string[] => {
+    if (isSuperAdmin()) {
+      return ["administrator", "owner", "editor", "viewer"];
+    }
+    if (isAdmin()) {
+      return ["owner", "editor", "viewer"];
+    }
+    if (isOwner()) {
+      return ["editor", "viewer"];
+    }
+    return ["viewer"];
+  };
+
+  const canEditUser = (user: Profile): boolean => {
+    if (isSuperAdmin()) return true;
+    if (isAdmin()) {
+      // Admins can edit owners, editors, and viewers
+      return ["owner", "editor", "viewer"].includes(user.role);
+    }
+    if (isOwner()) {
+      // Owners can only edit editors and viewers
+      return ["editor", "viewer"].includes(user.role);
+    }
+    return false;
+  };
+
+  const canDeleteUser = (user: Profile): boolean => {
+    if (user.id === currentUser?.id) return false; // Can't delete yourself
+    return canEditUser(user);
+  };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case "super_administrator":
+        return "border-purple-500 text-purple-500";
+      case "administrator":
+      case "admin":
+        return "border-red-500 text-red-500";
+      case "owner":
+        return "border-yellow-500 text-yellow-500";
+      case "editor":
+        return "border-green-500 text-green-500";
+      default:
+        return "border-gray-500 text-gray-400";
+    }
+  };
+
+  const getRoleDisplayName = (role: string) => {
+    if (role === "super_administrator") return "Super Administrator";
+    if (role === "admin") return "Administrator";
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  };
+
+  // Check if current user can access this page
+  if (!loading && !canAccessPage()) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-red-500">Access Denied</h1>
           <p className="text-gray-400 mt-2">
-            Only Administrators can access this page.
+            You do not have permission to access this page.
           </p>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="mt-4 bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+          >
+            Go to Dashboard
+          </button>
         </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <p>Loading...</p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <header className="bg-gray-800 px-6 py-4">
-        <h1 className="text-2xl font-bold">User & Role Management</h1>
-        <p className="text-gray-400 text-sm">
-          Assign roles to users (Administrator only)
-        </p>
+      <header className="bg-gray-800 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">User & Role Management</h1>
+          <p className="text-gray-400 text-sm">
+            Manage users in your district
+            {currentUser?.district && <span> ({currentUser.district})</span>}
+          </p>
+        </div>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+          >
+            + Add User
+          </button>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+          >
+            Back to Dashboard
+          </button>
+        </div>
       </header>
 
       <main className="p-6">
@@ -100,104 +295,232 @@ export default function UsersAdminPage() {
           </div>
         )}
 
+        {/* Role Hierarchy Info */}
+        <div className="bg-gray-800 p-4 rounded-lg mb-6">
+          <h2 className="font-bold mb-3">Your Role: {getRoleDisplayName(currentUser?.role || "")}</h2>
+          <div className="text-sm text-gray-400">
+            <p className="mb-2">You can assign the following roles:</p>
+            <div className="flex gap-2">
+              {getAvailableRoles().map(role => (
+                <span key={role} className={`px-3 py-1 rounded border ${getRoleColor(role)}`}>
+                  {getRoleDisplayName(role)}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Role Legend */}
         <div className="bg-gray-800 p-4 rounded-lg mb-6">
           <h2 className="font-bold mb-3">Role Permissions:</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
             <div className="bg-gray-700 p-3 rounded">
-              <span className="font-bold text-blue-400">Viewer</span>
-              <p className="text-gray-400">Browse curriculum (read-only)</p>
-            </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <span className="font-bold text-green-400">Editor</span>
-              <p className="text-gray-400">Add/edit assigned areas only</p>
-            </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <span className="font-bold text-yellow-400">Owner</span>
-              <p className="text-gray-400">Edit all + oversee district</p>
+              <span className="font-bold text-purple-400">Super Administrator</span>
+              <p className="text-gray-400">Highest privilege, can assign Admins, Owners, Editors</p>
             </div>
             <div className="bg-gray-700 p-3 rounded">
               <span className="font-bold text-red-400">Administrator</span>
-              <p className="text-gray-400">Full control + manage roles</p>
+              <p className="text-gray-400">Can assign Owners and Editors</p>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <span className="font-bold text-yellow-400">Owner</span>
+              <p className="text-gray-400">Can only assign Editors</p>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <span className="font-bold text-green-400">Editor</span>
+              <p className="text-gray-400">Can add/edit content</p>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <span className="font-bold text-blue-400">Viewer</span>
+              <p className="text-gray-400">Read-only access</p>
             </div>
           </div>
         </div>
 
         {/* Users Table */}
-        {loading ? (
-          <p>Loading users...</p>
-        ) : (
-          <div className="bg-gray-800 rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-left">Email</th>
-                  <th className="px-4 py-3 text-left">Role</th>
-                  <th className="px-4 py-3 text-left">District</th>
-                  <th className="px-4 py-3 text-left">Assigned Subject</th>
-                  <th className="px-4 py-3 text-left">Assigned Grade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user.id} className="border-t border-gray-700">
-                    <td className="px-4 py-3 text-gray-300">{user.email}</td>
-                    <td className="px-4 py-3">
+        <div className="bg-gray-800 rounded-lg overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left">Email</th>
+                <th className="px-4 py-3 text-left">Role</th>
+                <th className="px-4 py-3 text-left">District</th>
+                <th className="px-4 py-3 text-left">Subject</th>
+                <th className="px-4 py-3 text-left">Grade</th>
+                <th className="px-4 py-3 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id} className="border-t border-gray-700">
+                  <td className="px-4 py-3 text-gray-300">
+                    {user.email}
+                    {user.id === currentUser?.id && (
+                      <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">You</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {canEditUser(user) ? (
                       <select
                         value={user.role}
                         onChange={(e) => updateUser(user.id, { role: e.target.value })}
-                        className={`bg-gray-700 border rounded px-2 py-1 ${
-                          user.role === "administrator" ? "border-red-500" :
-                          user.role === "owner" ? "border-yellow-500" :
-                          user.role === "editor" ? "border-green-500" :
-                          "border-gray-600"
-                        }`}
+                        className={`bg-gray-700 border rounded px-2 py-1 ${getRoleColor(user.role)}`}
+                        disabled={!canEditUser(user)}
                       >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>{r}</option>
+                        {getAvailableRoles().map((r) => (
+                          <option key={r} value={r}>{getRoleDisplayName(r)}</option>
                         ))}
+                        {!getAvailableRoles().includes(user.role) && (
+                          <option value={user.role}>{getRoleDisplayName(user.role)}</option>
+                        )}
                       </select>
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="text"
-                        value={user.district || ""}
-                        onChange={(e) => updateUser(user.id, { district: e.target.value })}
-                        placeholder="Enter district"
-                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={user.assigned_subject || ""}
-                        onChange={(e) => updateUser(user.id, { assigned_subject: e.target.value })}
-                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
+                    ) : (
+                      <span className={`px-2 py-1 rounded border ${getRoleColor(user.role)}`}>
+                        {getRoleDisplayName(user.role)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="text"
+                      value={user.district || ""}
+                      onChange={(e) => updateUser(user.id, { district: e.target.value })}
+                      placeholder="Enter district"
+                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
+                      disabled={!canEditUser(user)}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={user.assigned_subject || ""}
+                      onChange={(e) => updateUser(user.id, { assigned_subject: e.target.value })}
+                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
+                      disabled={!canEditUser(user)}
+                    >
+                      <option value="">All</option>
+                      {SUBJECTS.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={user.assigned_grade || ""}
+                      onChange={(e) => updateUser(user.id, { assigned_grade: e.target.value })}
+                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
+                      disabled={!canEditUser(user)}
+                    >
+                      <option value="">All</option>
+                      {GRADES.map((g) => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    {canDeleteUser(user) && (
+                      <button
+                        onClick={() => deleteUser(user.id)}
+                        className="text-red-500 hover:text-red-400"
                       >
-                        <option value="">All</option>
-                        {SUBJECTS.map((s) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={user.assigned_grade || ""}
-                        onChange={(e) => updateUser(user.id, { assigned_grade: e.target.value })}
-                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                      >
-                        <option value="">All</option>
-                        {GRADES.map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                        Delete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </main>
+
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">Add New User</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newUserData.email}
+                  onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                  placeholder="user@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm mb-1">Role</label>
+                <select
+                  value={newUserData.role}
+                  onChange={(e) => setNewUserData({ ...newUserData, role: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                >
+                  {getAvailableRoles().map((r) => (
+                    <option key={r} value={r}>{getRoleDisplayName(r)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm mb-1">District</label>
+                <input
+                  type="text"
+                  value={newUserData.district}
+                  onChange={(e) => setNewUserData({ ...newUserData, district: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                  placeholder="District name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm mb-1">Subject (Optional)</label>
+                <select
+                  value={newUserData.assigned_subject}
+                  onChange={(e) => setNewUserData({ ...newUserData, assigned_subject: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                >
+                  <option value="">All</option>
+                  {SUBJECTS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm mb-1">Grade (Optional)</label>
+                <select
+                  value={newUserData.assigned_grade}
+                  onChange={(e) => setNewUserData({ ...newUserData, assigned_grade: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                >
+                  <option value="">All</option>
+                  {GRADES.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-4 mt-6">
+              <button
+                onClick={addUser}
+                className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              >
+                Add User
+              </button>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

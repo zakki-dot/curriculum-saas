@@ -1,7 +1,35 @@
-
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getUserAndRole } from "@/lib/getUserRole";
+
+// Helper function to normalize role names
+function normalizeRole(role: string | null): string {
+  if (!role) return "viewer";
+  if (role === "admin") return "administrator";
+  return role;
+}
+
+// Helper function to check if a role can be assigned by another role
+function canAssignRole(assignerRole: string, targetRole: string): boolean {
+  const normalized = normalizeRole(assignerRole);
+  
+  // Super Administrator can assign: administrator, owner, editor, viewer
+  if (normalized === "super_administrator") {
+    return ["administrator", "owner", "editor", "viewer"].includes(targetRole);
+  }
+  
+  // Administrator can assign: owner, editor, viewer
+  if (normalized === "administrator") {
+    return ["owner", "editor", "viewer"].includes(targetRole);
+  }
+  
+  // Owner can assign: editor, viewer
+  if (normalized === "owner") {
+    return ["editor", "viewer"].includes(targetRole);
+  }
+  
+  return false;
+}
 
 // GET all users (with optional district filter)
 export async function GET(req: Request) {
@@ -15,6 +43,8 @@ export async function GET(req: Request) {
       );
     }
 
+    const normalizedRole = normalizeRole(role);
+
     // Get user's profile to check their district
     const { data: userProfile } = await supabaseServer
       .from("profiles")
@@ -25,16 +55,15 @@ export async function GET(req: Request) {
     let query = supabaseServer
       .from("profiles")
       .select("*")
-      .order("email");
+      .order("created_at", { ascending: false });
 
-    // Administrators see all users in their district
-    // Owners see editors and viewers in their district
-    if (role === "administrator" || role === "owner") {
+    // Super Administrators, Administrators, and Owners see users in their district
+    if (["super_administrator", "administrator", "owner"].includes(normalizedRole)) {
       if (userProfile?.district) {
         query = query.eq("district", userProfile.district);
       }
     } else {
-      // Viewers can only see themselves
+      // Editors and Viewers can only see themselves
       query = query.eq("id", user.id);
     }
 
@@ -68,12 +97,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Only administrators and owners can add users
-    // Accept both "admin" and "administrator" for backwards compatibility
-    const isAdmin = role === "administrator" || role === "admin";
-    const isOwner = role === "owner";
-    
-    if (!isAdmin && !isOwner) {
+    const normalizedRole = normalizeRole(role);
+
+    // Only super_administrator, administrator, and owner can add users
+    if (!["super_administrator", "administrator", "owner"].includes(normalizedRole)) {
       return NextResponse.json(
         { error: "Not authorized. Only administrators and owners can add users." },
         { status: 403 }
@@ -90,16 +117,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Owners cannot create administrators
-    // Accept both "admin" and "administrator"
-    if (role === "owner" && (assignedRole === "administrator" || assignedRole === "admin")) {
+    // Check if the assigner can assign this role
+    if (!canAssignRole(normalizedRole, assignedRole)) {
       return NextResponse.json(
-        { error: "Owners cannot create administrators" },
+        { error: `You cannot assign the role: ${assignedRole}` },
         { status: 403 }
       );
     }
 
-    // Get the user's district if they're not an admin
+    // Get the user's district
     let userDistrict = district;
     if (!userDistrict) {
       const { data: userProfile } = await supabaseServer
@@ -115,7 +141,7 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("id, email")
       .eq("email", email)
-      .single();
+      .maybeSingle();
 
     if (existingProfile) {
       return NextResponse.json(
@@ -124,11 +150,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create profile (user will be created when they sign up with this email)
+    // Create profile
     const { data: newProfile, error: profileError } = await supabaseServer
       .from("profiles")
       .insert({
-        id: crypto.randomUUID(), // Temporary ID until they sign up
+        id: crypto.randomUUID(),
         email: email,
         role: assignedRole,
         district: userDistrict,
@@ -166,11 +192,9 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Accept both "admin" and "administrator"
-    const isAdmin = role === "administrator" || role === "admin";
-    const isOwner = role === "owner";
+    const normalizedRole = normalizeRole(role);
 
-    if (!isAdmin && !isOwner) {
+    if (!["super_administrator", "administrator", "owner"].includes(normalizedRole)) {
       return NextResponse.json(
         { error: "Not authorized" },
         { status: 403 }
@@ -187,18 +211,17 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Owners cannot promote to administrator
-    // Accept both "admin" and "administrator"
-    if (role === "owner" && (newRole === "administrator" || newRole === "admin")) {
+    // Check if the assigner can assign this new role
+    if (newRole && !canAssignRole(normalizedRole, newRole)) {
       return NextResponse.json(
-        { error: "Owners cannot create administrators" },
+        { error: `You cannot assign the role: ${newRole}` },
         { status: 403 }
       );
     }
 
     const updateData: any = {};
     if (newRole) updateData.role = newRole;
-    if (district) updateData.district = district;
+    if (district !== undefined) updateData.district = district;
     if (assigned_subject !== undefined) updateData.assigned_subject = assigned_subject;
     if (assigned_grade !== undefined) updateData.assigned_grade = assigned_grade;
 
@@ -237,10 +260,10 @@ export async function DELETE(req: Request) {
       );
     }
 
-    // Accept both "admin" and "administrator"
-    const isAdmin = role === "administrator" || role === "admin";
-    
-    if (!isAdmin) {
+    const normalizedRole = normalizeRole(role);
+
+    // Only super_administrator and administrator can delete users
+    if (!["super_administrator", "administrator"].includes(normalizedRole)) {
       return NextResponse.json(
         { error: "Only administrators can delete users" },
         { status: 403 }

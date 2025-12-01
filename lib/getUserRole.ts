@@ -1,11 +1,9 @@
-
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseServer } from "./supabaseServer";
 
 export async function getUserAndRole() {
   const cookieStore = await cookies();
-  
   const supabaseAuth = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -37,8 +35,15 @@ export async function getUserAndRole() {
     .eq("id", user.id)
     .single();
 
-  console.log("🔍 Profile query result:", { profile, error });
-  console.log("👤 User role:", profile?.role);
+  console.log("📋 Profile query result:", { profile, error });
 
-  return { user, role: profile?.role ?? null };
+  // Normalize role: treat "admin" as "administrator"
+  let normalizedRole = profile?.role ?? null;
+  if (normalizedRole === "admin") {
+    normalizedRole = "administrator";
+  }
+
+  console.log("👤 User role:", normalizedRole);
+
+  return { user, role: normalizedRole };
 }
