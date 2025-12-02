@@ -17,6 +17,16 @@ type Profile = {
 const SUBJECTS = ["ELA", "Math", "Science", "Social Studies", "SLA"];
 const GRADES = ["K", "1", "2", "3", "4", "5", "6", "7", "8"];
 
+// Role hierarchy (higher number = higher privilege)
+const ROLE_HIERARCHY: Record<string, number> = {
+  viewer: 1,
+  editor: 2,
+  owner: 3,
+  admin: 4,
+  administrator: 4,
+  super_administrator: 5,
+};
+
 export default function UsersAdminPage() {
   const router = useRouter();
   const [users, setUsers] = useState<Profile[]>([]);
@@ -124,7 +134,14 @@ export default function UsersAdminPage() {
         console.error("Error fetching users:", error);
         setMessage(`❌ Error: ${error.message}`);
       } else {
-        setUsers(data || []);
+        // 🔒 SECURITY: Filter out users with equal or higher privilege
+        const currentUserLevel = ROLE_HIERARCHY[currentUser.role] || 0;
+        const filteredUsers = (data || []).filter(user => {
+          const userLevel = ROLE_HIERARCHY[user.role] || 0;
+          return userLevel < currentUserLevel; // Only show users with LOWER privilege
+        });
+        
+        setUsers(filteredUsers);
       }
     } catch (err) {
       console.error("Unexpected error fetching users:", err);
@@ -153,6 +170,7 @@ export default function UsersAdminPage() {
     }
   };
 
+  // ✅ FIXED: Now calls API route with server-side security checks
   const addUser = async () => {
     if (!newUserData.email) {
       setMessage("❌ Email is required");
@@ -165,37 +183,43 @@ export default function UsersAdminPage() {
       return;
     }
 
+    setLoading(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .insert({
-          id: crypto.randomUUID(),
+      // Call API route to create user properly
+      const response = await fetch("/api/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           email: newUserData.email,
           role: newUserData.role,
           district: newUserData.district || currentUser?.district,
           assigned_subject: newUserData.assigned_subject || null,
           assigned_grade: newUserData.assigned_grade || null,
-        });
+        }),
+      });
 
-      if (error) {
-        console.error("Insert error:", error);
-        setMessage(`❌ Error: ${error.message}`);
-      } else {
-        setMessage("✅ User added successfully!");
-        setShowAddModal(false);
-        setNewUserData({
-          email: "",
-          role: "viewer",
-          district: currentUser?.district || "",
-          assigned_subject: "",
-          assigned_grade: "",
-        });
-        fetchUsers();
-        setTimeout(() => setMessage(""), 3000);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to create user");
       }
-    } catch (err) {
-      console.error("Unexpected error adding user:", err);
-      setMessage("❌ Failed to add user");
+
+      setMessage("✅ User added successfully!");
+      setShowAddModal(false);
+      setNewUserData({
+        email: "",
+        role: "viewer",
+        district: currentUser?.district || "",
+        assigned_subject: "",
+        assigned_grade: "",
+      });
+      fetchUsers();
+      setTimeout(() => setMessage(""), 3000);
+    } catch (err: any) {
+      console.error("Error adding user:", err);
+      setMessage(`❌ Error: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -410,7 +434,7 @@ export default function UsersAdminPage() {
         <div className="bg-gray-800 rounded-lg overflow-hidden">
           {users.length === 0 ? (
             <div className="p-8 text-center text-gray-400">
-              <p>No users found in your district.</p>
+              <p>No users found that you can manage.</p>
               <p className="text-sm mt-2">Click "+ Add User" to create one.</p>
             </div>
           ) : (
@@ -583,9 +607,10 @@ export default function UsersAdminPage() {
             <div className="flex gap-4 mt-6">
               <button
                 onClick={addUser}
-                className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                disabled={loading}
+                className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
               >
-                Add User
+                {loading ? "Adding..." : "Add User"}
               </button>
               <button
                 onClick={() => setShowAddModal(false)}
