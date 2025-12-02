@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -129,9 +128,19 @@ export default function DashboardPage() {
     }
   };
 
+  // ✅ FIXED LOGOUT FUNCTION
   async function handleLogout() {
+    // Sign out from Supabase
     await supabase.auth.signOut();
-    router.push("/login");
+    
+    // Clear all cookies
+    document.cookie.split(";").forEach((c) => {
+      const cookieName = c.trim().split("=")[0];
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    });
+    
+    // Hard redirect to login (forces full page reload)
+    window.location.href = "/login";
   }
 
   if (loading) {

@@ -38,6 +38,18 @@ export default function UsersAdminPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
+  // ✅ FIXED LOGOUT FUNCTION
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    
+    document.cookie.split(";").forEach((c) => {
+      const cookieName = c.trim().split("=")[0];
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    });
+    
+    window.location.href = "/login";
+  }
+
   useEffect(() => {
     fetchCurrentUser();
   }, []);
@@ -284,9 +296,6 @@ export default function UsersAdminPage() {
     return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
-  // ✅ REMOVED THE ACCESS DENIED CHECK
-  // Middleware already handles this - no need to duplicate
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -295,7 +304,6 @@ export default function UsersAdminPage() {
     );
   }
 
-  // ✅ If profile failed to load but we're not loading anymore
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -337,6 +345,12 @@ export default function UsersAdminPage() {
             className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
           >
             Back to Dashboard
+          </button>
+          <button
+            onClick={handleLogout}
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          >
+            Logout
           </button>
         </div>
       </header>
